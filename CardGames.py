@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from Player import Player
-from NeuralNetworks import Cuore, Gioco
+from NeuralNetworks import Cuore2, Gioco2
 
 
 
@@ -47,11 +47,9 @@ class CardGame():
         self.turn = 0
         self.suit = None
         self.winning_round = None
+        self.highest_card = -1
         self.history = []
         
-
-        
-                
 
  
     def reset(self):
@@ -61,6 +59,7 @@ class CardGame():
         self.suit = None
         self.round_over = False
         self.history = []
+        self.highest_card = -1
 
         for player in self.playerlist:
 
@@ -116,25 +115,29 @@ class Hearts(CardGame):
         self.train = train
         self.hearts_broken = False
         self.first_round = True
+        self.last_round = False
         self.shoot_the_moon = None
+        self.queen_of_spades_played = False
         self.MAX_MEM_LEN = 100000
         self.MIN_MEM_LEN = 10000
-        self.EPSILON = 0.9
+        self.EPSILON = 1
         
         self.memory = deque([], maxlen=self.MAX_MEM_LEN)
         
-        self.strat_nnet = Gioco()
+        self.strat_nnet = Gioco2()
         
         for player in self.playerlist:
             
             player.hearts = 0
             player.queen_of_spades = 0
             
-            player.response_nnet = Cuore()
-            player.best_response_nnet = Cuore()
+            player.response_nnet = Cuore2()
+            player.best_response_nnet = Cuore2()
             
             player.memory = deque([], maxlen=self.MAX_MEM_LEN)
             player.train_examples = []
+            player.reward = 0
+            player.points_given = 0
 
             
         
@@ -143,13 +146,18 @@ class Hearts(CardGame):
         
         self.hearts_broken = False
         self.first_round = True
+        self.last_round = False
         self.shoot_the_moon = None
+        self.queen_of_spades_played = False
 
         if self.train:
 
             for player in self.playerlist:
 
                 player.points = 0
+                player.train_examples = []
+                player.reward = 0
+                player.points_given = 0
         
         
     def check_for_2clubs(self):
@@ -173,31 +181,245 @@ class Hearts(CardGame):
         
         else:
             
-            if self.suit==None:
+            if player.model=="Random":
 
-                return self.random_card(player.hand)
+                if np.sum(player.hand[self.suit])==0 or self.suit==None:
 
-            else:
-
-                if np.sum(player.hand[self.suit])==0:
 
                     return self.random_card(player.hand)
 
                 else:
 
-                    available_moves = player.hand.copy()
-                    available_moves[:self.suit] = 0
-                    available_moves[self.suit+1:] = 0
+                    hand = player.hand.copy()
 
-                    return self.random_card(available_moves)
+                    hand[:self.suit] = 0
+                    hand[self.suit+1:] = 0
+                    
+
+                    return self.random_card(hand)
+
+            elif player.model=="Heuristic":
+                
+                
+                                    
+                pile = self.get_pile(player.hand)
+                                  
+   
+                if self.suit==None:
+        
+
+                    
+                    
+                    # the case where it is the first turn in the round, qos has not been played but the player does not have the queen
+                    if not self.queen_of_spades_played:
+                        
+                        if player.hand[1,10]==0: #player does not have queen of spades
+                        
+ 
+                            #picking highest spade below the qos
+
+                            if len(pile[1][pile[0]==2])>0:
+
+
+                                for card in reversed(pile[1][pile[0]==1]):
+
+                                    if card<10:
+
+                                        return 1,card
+
+
+                             #picking best diamond card   
+
+                            if len(pile[1][pile[0]==0])>0:
+
+                                if len(pile[1][pile[0]==0])==1:
+
+                                    return 0,pile[1][pile[0]==0][0]
+
+                                else:
+
+                                    return 0,pile[1][pile[0]==0][1]
+
+                            #picking best club card        
+
+                            elif len(pile[1][pile[0]==3])>0:
+
+                                if len(pile[1][pile[0]==3])==1:
+
+                                    return 3,pile[1][pile[0]==3][0]
+
+                                else:
+
+                                    return 3,pile[1][pile[0]==3][1]
+
+
+                            elif len(pile[1][pile[0]==2])==len(pile[1]) or (len(pile[1][pile[0]==2])>0 and self.hearts_broken==True):
+
+                                return 2,pile[1][pile[0]==2][0]
+
+                            # odd case where all the player has left is king or ace of spades and is leading
+                            else:
+
+                                return 1,pile[1][pile[0]==1][-1]
+
+                                    
+                        else: #if player is leading and player has queen of spades
+                            
+                            
+                            if len(pile[1][pile[0]==0])>0:
+
+                                if len(pile[1][pile[0]==0])==1:
+
+                                    return 0,pile[1][pile[0]==0][0]
+
+                                else:
+
+                                    return 0,pile[1][pile[0]==0][1]
+                        
+                            
+                            if len(pile[1][pile[0]==3])>0:
+
+                                if len(pile[1][pile[0]==3])==1:
+
+                                    return 3,pile[1][pile[0]==3][0]
+
+                                else:
+
+                                    return 3,pile[1][pile[0]==3][1]                            
+                        
+                            
+                            if len(pile[1][pile[0]==2])==len(pile[1]) and self.hearts_broken==True:
+
+                                return 2,pile[1][pile[0]==2][0]
+                            
+                            if pile[1][pile[0]==1][-1]==10 and len(pile[1][pile[0]==1])>1:
+                                
+                                return 1,pile[1][pile[0]==1][-2]
+                            else:
+                                return 1,pile[1][pile[0]==1][-1]
+                                
+                                
+                     # qos already played
+                    else:
+
+                        if len(pile[1][pile[0]==0])>0:
+
+                            if len(pile[1][pile[0]==0])==1:
+
+                                return 0,pile[1][pile[0]==0][0]
+
+                            else:
+
+                                return 0,pile[1][pile[0]==0][1]
+                            
+                        
+                        elif len(pile[1][pile[0]==1])>0:
+
+                            if len(pile[1][pile[0]==1])==1:
+
+                                return 1,pile[1][pile[0]==1][0]
+
+                            else:
+
+                                return 1,pile[1][pile[0]==1][1]
+                            
+                        
+                        elif len(pile[1][pile[0]==3])>0:
+
+                            if len(pile[1][pile[0]==3])==1:
+
+                                return 3,pile[1][pile[0]==3][0]
+
+                            else:
+
+                                return 3,pile[1][pile[0]==3][1]
+                            
+                            
+                        elif len(pile[1][pile[0]==2])>0:
+
+                            return 2,pile[1][pile[0]==2][0]
+
+                    
+                  
+                # someone else led
+                else:
+
+                    
+                    if len(pile[1][pile[0]==self.suit])>0:
+                        
+
+                        
+                        for card in reversed(pile[1][pile[0]==self.suit]):
+                            
+                            if card<self.highest_card:
+                                
+                                return self.suit,card
+                            
+                        return self.suit,pile[1][pile[0]==self.suit][-1]
+                        
+                    else:
+                        
+                        if player.hand[1,10]==1:
+                            
+                            return 1,10
+                        
+                        
+                        elif len(pile[1][pile[0]==2])>0:
+                            
+                            return 2,pile[1][pile[0]==2][-1]
+                        
+                        elif len(pile[1][pile[0]==1])>0:
+                            
+                            return 1,pile[1][pile[0]==1][-1]
+                        
+                        elif len(pile[1][pile[0]==0])>0:
+                            
+                            return 0,pile[1][pile[0]==0][-1]
+                        
+                        elif len(pile[1][pile[0]==3])>0:
+                            
+                            return 3,pile[1][pile[0]==3][-1]
+                        
+                        
+                
+                
+            else:
+                
+                game_state, mask, memory = self.nnet_input()
+
+                
+                with torch.no_grad():
+                    
+                    # if np.random.uniform(0,1)>1:
+                        
+                    output = self.playerlist[self.turn].response_nnet(game_state.unsqueeze(0),memory)*mask
+                        
+                    # else:
+                        
+                    # output = self.strat_nnet(game_state.unsqueeze(0),memory)*mask
+                
+
+                output = (output - torch.min(output)*torch.ones((1,52)) + 0.001*torch.ones((1,52))).squeeze()*mask
+                prediction = output.squeeze().numpy()
+
+                if self.turn==0:
+                    print(self.table)
+                    print(prediction.reshape((4,13)))
+                    print('')
+                    
+                choice = np.argmax(prediction)
+
+                
+
+                return int(choice/13), choice%13
    
     
     
     def play_round(self):
         
        
-        previous_b = -1
         self.winning_round = None
+        self.highest_card = -1
         
         
         if self.first_round:
@@ -206,97 +428,111 @@ class Hearts(CardGame):
             self.dealer = (self.dealer + 1)%self.numplayers
             
             self.turn = self.check_for_2clubs()
+
             
-            self.record_history(3,0)
+            # self.record_history(3,0)
 
             self.playerlist[self.turn].hand[3,0] = 0
             self.table[3,0] = 1
             
-            self.first_round = False
             self.suit = 3
-            previous_b = 0
+            self.highest_card = 0
             self.winning_round = self.turn
             
             self.turn = (self.turn + 1)%self.numplayers
+
+
             
         while np.sum(self.table)<self.numplayers:
-            
-            if self.train==False:
+
+            if not self.train:
                 
                 a,b = self.choose_card(self.playerlist[self.turn])
-                
+
+                          
             else:
                 
                 game_state, mask, memory = self.nnet_input()
                 
                 with torch.no_grad():
-                    output = self.playerlist[self.turn].response_nnet(game_state,memory)*mask
-                
+                    output = self.playerlist[self.turn].response_nnet(game_state.unsqueeze(0),memory)*mask
 
-                prediction = output / torch.sum(output)
-                prediction = prediction.squeeze().numpy()
-                
-               
+                output = (output - (torch.min(output) - 0.001)*torch.ones((1,52))).squeeze()*mask
+                prediction = output.squeeze().numpy()
 
 
                 
                 if np.random.uniform(0,1)<self.EPSILON:
-                    
 
 
-                    choice = np.random.choice(52,p=prediction)
-                    a,b = int(choice/13), choice%13
-
-
-                    
-                    
+                    choice = np.random.choice(np.nonzero(mask)[:,1])
+                    a,b = int(choice/13), choice%13 
                     
                 
                 else:
 
-
-                    
                     choice = np.argmax(prediction)
                     a,b = int(choice/13), choice%13
 
                     action = torch.zeros((1,52))
                     action[0,choice] = 1
-                    self.memory.append([game_state,memory,action])
+                    self.memory.append([game_state,memory,mask,action])
                 
+
                 action = torch.zeros((1,52))
                 action[0,choice] = 1
- 
+
+                if a==2:
+
+                    self.playerlist[self.turn].points_given = 1
+
+                elif a==1 and b==10:
+
+                    self.playerlist[self.turn].points_given = 13
+
+                else:
+
+                    self.playerlist[self.turn].points_given = 0
+
 
                 if len(self.playerlist[self.turn].train_examples)>0:
                     
-                    self.playerlist[self.turn].train_examples[-1][4] = torch.max(output)
-                                
+                    with torch.no_grad():
+                        next_qs = self.playerlist[self.turn].best_response_nnet(game_state.unsqueeze(0),memory)*mask
+                        maxq = torch.max(torch.where(next_qs==0.,torch.tensor(-26.,dtype=torch.float64),next_qs))
+ 
+                    self.playerlist[self.turn].train_examples[-1][4] = maxq
 
 
 
-                if len(self.playerlist[self.turn].train_examples)<12:
+
+                if not self.last_round:
                 
                     self.playerlist[self.turn].train_examples.append([
                                     game_state
                                     ,memory
                                     ,action
-                                    ,None # reward
-                                    ,None # max q'
-                                    ])     
-                
+                                    ,0 # reward
+                                    ,0 # max q'
+                                    ])
+ 
 
-            
-#             self.record_history(a,b)
-            
-                      
+
+
+
             if self.suit==None:
                 
                 self.suit = a
-                
 
-        
+
+
             self.playerlist[self.turn].hand[a,b] = 0
             self.table[a,b] = 1
+            
+            
+            if a==1 and b==10:
+                
+                self.queen_of_spades_played = True
             
             
             if self.hearts_broken==False:
@@ -308,31 +544,75 @@ class Hearts(CardGame):
             
             if a==self.suit:
                 
-                if b>previous_b:
+                if b>self.highest_card:
                     
-                    previous_b = b
+                    self.highest_card = b
                     self.winning_round = self.turn
-                    
 
-                    
-                    
-            
+
             self.turn = (self.turn + 1)%self.numplayers
-            
+
+ 
+
+
         self.playerlist[self.winning_round].reserve += self.table
+
+        for i,player in enumerate(self.playerlist):
+
+            if i==self.winning_round:
+                
+                player.reward = -1 * (np.sum(self.table[2]) + 13 * self.table[1,10])
+
+            else:
+
+                player.reward = player.points_given
+
+
+
+            
+        # self.playerlist[self.winning_round].reward = -1 * (np.sum(self.table[2]) + 13 * self.table[1,10])
         self.table = np.zeros(self.deckshape)
         self.turn = self.winning_round
         self.winning_round = None  
         self.suit = None
-        
+
+        if self.train:
+                
+            if self.last_round:
+
+                for player in self.playerlist:
+
+                    player.train_examples[-1][3] += player.reward
+                    player.reward = 0
+            
+            else:
+
+                for player in self.playerlist:
+
+                    if len(player.train_examples)>0:
+
+                        player.train_examples[-1][3] = player.reward
+                    
+                    player.reward = 0
+
+
+        if self.first_round:
+
+            self.first_round = False
+
+
         if np.sum(self.playerlist[0].hand)==0:
-            
+
             self.score_round()
-            
-            
+                  
             self.round_over = True
-            
-            
+        
+        elif np.sum(self.playerlist[0].hand)==1:
+
+            self.last_round = True
+
+
+
             
     def score_round(self):
         
@@ -347,7 +627,7 @@ class Hearts(CardGame):
                 
                 self.shoot_the_moon = i
                 
-        if self.shoot_the_moon!=None:
+        if False:#self.shoot_the_moon!=None:
             
             for i,player in enumerate(self.playerlist):
                 
@@ -364,14 +644,17 @@ class Hearts(CardGame):
             for player in self.playerlist:
                 
                 player.points += player.round_points
+
                 
         if self.train:      
             
             for player in self.playerlist:
+
                     
                 for x in player.train_examples:
 
-                    player.memory.append([x[0],x[1],x[2],torch.tensor((26-player.round_points)/13),x[4]])
+                    
+                    player.memory.append([x[0],x[1],x[2],torch.tensor(x[3],dtype=torch.long),x[4]])
                 
                 
     def record_history(self,a,b):
@@ -394,45 +677,72 @@ class Hearts(CardGame):
         if self.suit==None:
             
             if self.hearts_broken or np.sum(self.playerlist[self.turn].hand[2])==np.sum(self.playerlist[self.turn].hand):
+
                 
                 return torch.reshape(torch.tensor(mask),(1,-1))
             
             else:
                 
                 mask[2] = 0
+
                 
                 return torch.reshape(torch.tensor(mask),(1,-1))
+
         
         
         elif np.sum(self.playerlist[self.turn].hand[self.suit])==0:
+
             
             return torch.reshape(torch.tensor(mask),(1,-1))
+
                   
         else:
             
             mask[:self.suit] = 0
             mask[self.suit+1:] = 0
+
             
             return torch.reshape(torch.tensor(mask),(1,-1))
+
         
     
     def recall_history(self):
         
-        return np.zeros((1,13))
-        
-        
+        return torch.zeros((1,13))
 
-                
+    def create_blank(self):
+    
+        return torch.zeros((16,16))
+              
 
     def nnet_input(self):
     
-        game_state = [self.playerlist[(i+self.turn)%self.numplayers].reserve.copy() for i in range(self.numplayers)]
-        game_state.append(self.playerlist[self.turn].hand.copy())
-        game_state.append(self.table.copy())
+        # game_state = [self.playerlist[(i+self.turn)%self.numplayers].reserve.copy() for i in range(self.numplayers)]
+        # game_state.append(self.playerlist[self.turn].hand.copy())
+        # game_state.append(self.table.copy())
         
+        # memory = self.recall_history()
+        # game_state.append(memory) #get rid of this once RNN is up and running
+        # game_state = torch.reshape(torch.tensor(np.concatenate(game_state)).float(),(1,-1))
+
+        hand = self.create_blank()
+        hand[6:10,1:14] = torch.tensor(self.playerlist[self.turn].hand)
+        hand = hand.unsqueeze(0)
+    
+        table = self.create_blank()
+        table[6:10,1:14] = torch.tensor(self.table)
+        table = table.unsqueeze(0)
+
+        game_state = torch.cat((hand,table))
+
         memory = self.recall_history()
-        game_state.append(memory) #get rid of this once RNN is up and running
-        game_state = torch.reshape(torch.tensor(np.concatenate(game_state)).float(),(1,-1))
+
+        for i in range(self.numplayers):
+
+            reserve = self.create_blank()
+            reserve[6:10,1:14] = torch.tensor(self.playerlist[(i+self.turn)%self.numplayers].reserve)
+            reserve = reserve.unsqueeze(0)
+            game_state = torch.cat((game_state,reserve))
         
         mask = self.get_mask()
         
